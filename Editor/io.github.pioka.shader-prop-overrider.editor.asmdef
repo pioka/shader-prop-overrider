@@ -1,0 +1,25 @@
+{
+    "name": "io.github.pioka.shader-prop-overrider.editor",
+    "rootNamespace": "Pioka.ShaderPropOverrider.Editor",
+    "references": [
+        "io.github.pioka.shader-prop-overrider.runtime",
+        "nadena.dev.ndmf"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [
+        {
+            "name": "com.anatawa12.avatar-optimizer",
+            "expression": "",
+            "define": "HAS_AAO"
+        }
+    ],
+    "noEngineReferences": false
+}
