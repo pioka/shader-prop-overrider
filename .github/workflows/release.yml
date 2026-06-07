@@ -1,0 +1,72 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        type: choice
+        required: true
+        default: full
+        options:
+          - full
+          - pages_only
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: >-
+      inputs.target == 'full'
+      && github.ref == 'refs/heads/main'
+
+    permissions:
+      contents: write
+
+    runs-on: ubuntu-latest
+    steps:
+      - id: checkout
+        uses: actions/checkout@v4
+
+      - id: create_release
+        run: ./.github/scripts/create_release.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  pages:
+    needs: [release]
+    if: >-
+      !cancelled()
+      && needs.release.result != 'failure'
+      && github.ref == 'refs/heads/main'
+
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    runs-on: ubuntu-latest
+    steps:
+      - id: checkout
+        uses: actions/checkout@v4
+
+      - id: configure_pages
+        uses: actions/configure-pages@v5
+
+      - id: build_listing
+        run: ./.github/scripts/build_pages.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_PAGES_BASE_URL: ${{ steps.configure_pages.outputs.base_url }}
+
+      - id: upload_pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./public
+
+      - id: deploy_pages
+        uses: actions/deploy-pages@v4
