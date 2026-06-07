@@ -1,0 +1,12 @@
+{
+  "name": "io.github.pioka.vpm-example-package",
+  "version": "0.1.0",
+  "displayName": "VPM Example Package",
+  "description": "This package contains only example logger script.",
+  "unity": "2022.3",
+  "author": {
+    "name": "pioka",
+    "url": "https://github.com/pioka"
+  },
+  "license": "MIT"
+}
