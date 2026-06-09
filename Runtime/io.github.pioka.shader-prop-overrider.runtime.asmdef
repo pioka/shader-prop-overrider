@@ -1,7 +1,9 @@
 {
     "name": "io.github.pioka.shader-prop-overrider.runtime",
     "rootNamespace": "Pioka.ShaderPropOverrider",
-    "references": [],
+    "references": [
+        "VRC.SDKBase"
+    ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,

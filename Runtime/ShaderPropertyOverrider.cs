@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using VRC.SDKBase;
 
 namespace Pioka.ShaderPropOverrider
 {
@@ -37,10 +38,13 @@ namespace Pioka.ShaderPropOverrider
     /// <summary>
     /// アバター内の全マテリアルに対してシェーダープロパティを一括上書きするコンポーネント。
     /// NDMFによりビルド時に非破壊で適用されます。
+    ///
+    /// <see cref="IEditorOnly"/> を実装しているため、ビルド成果物には残りません
+    /// (VRChat SDK によって除去されます)。
     /// </summary>
     [AddComponentMenu("Shader Property Overrider")]
     [DisallowMultipleComponent]
-    public class ShaderPropertyOverrider : MonoBehaviour
+    public class ShaderPropertyOverrider : MonoBehaviour, IEditorOnly
     {
         [Tooltip("上書きするシェーダープロパティのリスト")]
         public List<PropertyOverrideEntry> overrides = new List<PropertyOverrideEntry>();
