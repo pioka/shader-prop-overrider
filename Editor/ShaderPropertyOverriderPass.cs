@@ -42,39 +42,39 @@ namespace Pioka.ShaderPropOverrider.Editor
 
                 for (int i = 0; i < materials.Length; i++)
                 {
-                    var original = materials[i];
-                    if (original == null) continue;
+                    var src = materials[i];
+                    if (src == null) continue;
 
-                    if (!materialCache.TryGetValue(original, out var target))
+                    if (!materialCache.TryGetValue(src, out var dst))
                     {
                         // 既に一時クローン（先行プラグインが複製済み）ならそのまま編集。
                         // そうでなければ複製し、元→複製の対応を ObjectRegistry に登録する。
-                        if (context.IsTemporaryAsset(original))
+                        if (context.IsTemporaryAsset(src))
                         {
-                            target = original;
+                            dst = src;
                         }
                         else
                         {
-                            target = Object.Instantiate(original);
-                            target.name = original.name;
-                            ObjectRegistry.RegisterReplacedObject(original, target);
+                            dst = Object.Instantiate(src);
+                            dst.name = src.name;
+                            ObjectRegistry.RegisterReplacedObject(src, dst);
                         }
 
-                        materialCache[original] = target;
+                        materialCache[src] = dst;
 
                         // 編集対象1つにつき1回だけ適用（後のエントリが勝つ）
                         foreach (var entry in component.overrides)
                         {
                             if (string.IsNullOrEmpty(entry.propertyName)) continue;
-                            if (ApplyEntry(target, entry))
+                            if (ApplyEntry(dst, entry))
                                 appliedEntries.Add(entry);
                         }
                     }
 
                     // 参照が変わった場合（複製した場合）のみ書き戻す
-                    if (!ReferenceEquals(materials[i], target))
+                    if (!ReferenceEquals(materials[i], dst))
                     {
-                        materials[i] = target;
+                        materials[i] = dst;
                         modified = true;
                     }
                 }
