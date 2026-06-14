@@ -1,12 +1,15 @@
 {
-  "name": "io.github.pioka.vpm-example-package",
+  "name": "io.github.pioka.shader-prop-overrider",
   "version": "0.1.0",
-  "displayName": "VPM Example Package",
-  "description": "This package contains only example logger script.",
+  "displayName": "Shader Property Overrider",
   "unity": "2022.3",
+  "description": "An NDMF plugin that bulk-overwrites shader properties on all materials in an avatar at build time.",
   "author": {
     "name": "pioka",
     "url": "https://github.com/pioka"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "nadena.dev.ndmf": "1.0.0"
+  }
 }
