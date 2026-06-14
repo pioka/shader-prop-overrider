@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using nadena.dev.ndmf;
-using Pioka.ShaderPropOverrider;
 using UnityEditor;
 using UnityEngine;
 
@@ -8,10 +7,15 @@ namespace Pioka.ShaderPropOverrider.Editor
 {
     /// <summary>
     /// ビルド時にアバター内の全マテリアルへシェーダープロパティを一括上書きするNDMFパス。
+    /// <see cref="ShaderPropertyOverriderPlugin"/> からインライン形式
+    /// (<c>.Run("...", Execute)</c>) で呼び出される。
     /// </summary>
-    internal class ShaderPropertyOverriderPass : Pass<ShaderPropertyOverriderPass>
+    internal static class ShaderPropertyOverriderPass
     {
-        protected override void Execute(BuildContext context)
+        /// <summary>
+        /// パス本体。<c>Action&lt;BuildContext&gt;</c> に合致するシグネチャ。
+        /// </summary>
+        public static void Execute(BuildContext context)
         {
             var component = context.AvatarRootObject
                 .GetComponentInChildren<ShaderPropertyOverrider>(includeInactive: true);
@@ -24,9 +28,12 @@ namespace Pioka.ShaderPropOverrider.Editor
             var renderers = context.AvatarRootObject
                 .GetComponentsInChildren<Renderer>(includeInactive: true);
 
-            // 同一マテリアルを重複して複製しないためのキャッシュ
-            // キー: 元のマテリアル、値: 複製済みマテリアル
+            // 同一マテリアルを重複処理しないためのキャッシュ
+            // キー: 元のマテリアル、値: 編集対象（複製、または既存の一時アセット）
             var materialCache = new Dictionary<Material, Material>();
+
+            // 少なくとも1つのマテリアルに適用できたエントリの集合（typo検出用）
+            var appliedEntries = new HashSet<PropertyOverrideEntry>();
 
             foreach (var renderer in renderers)
             {
@@ -38,43 +45,75 @@ namespace Pioka.ShaderPropOverrider.Editor
                     var original = materials[i];
                     if (original == null) continue;
 
-                    // 複製済みでなければここで複製してキャッシュ
-                    if (!materialCache.TryGetValue(original, out var cloned))
+                    if (!materialCache.TryGetValue(original, out var target))
                     {
-                        cloned = Object.Instantiate(original);
-                        cloned.name = original.name;
-                        materialCache[original] = cloned;
+                        // 既に一時クローン（先行プラグインが複製済み）ならそのまま編集。
+                        // そうでなければ複製し、元→複製の対応を ObjectRegistry に登録する。
+                        if (context.IsTemporaryAsset(original))
+                        {
+                            target = original;
+                        }
+                        else
+                        {
+                            target = Object.Instantiate(original);
+                            target.name = original.name;
+                            ObjectRegistry.RegisterReplacedObject(original, target);
+                        }
+
+                        materialCache[original] = target;
+
+                        // 編集対象1つにつき1回だけ適用（後のエントリが勝つ）
+                        foreach (var entry in component.overrides)
+                        {
+                            if (string.IsNullOrEmpty(entry.propertyName)) continue;
+                            if (ApplyEntry(target, entry))
+                                appliedEntries.Add(entry);
+                        }
                     }
 
-                    // エントリを順番に適用（後のエントリが勝つ）
-                    foreach (var entry in component.overrides)
+                    // 参照が変わった場合（複製した場合）のみ書き戻す
+                    if (!ReferenceEquals(materials[i], target))
                     {
-                        if (string.IsNullOrEmpty(entry.propertyName)) continue;
-
-                        ApplyEntry(cloned, entry);
+                        materials[i] = target;
+                        modified = true;
                     }
-
-                    materials[i] = cloned;
-                    modified = true;
                 }
 
                 if (modified)
                     renderer.sharedMaterials = materials;
             }
+
+            // どのマテリアルにも適用されなかったエントリを警告（typo・型不一致の検出）
+            foreach (var entry in component.overrides)
+            {
+                if (string.IsNullOrEmpty(entry.propertyName)) continue;
+                if (appliedEntries.Contains(entry)) continue;
+
+                ErrorReport.ReportError(
+                    SpoLocalizer.Instance,
+                    ErrorSeverity.NonFatal,
+                    SpoLocalizer.NotApplied,
+                    entry.propertyName,
+                    entry.propertyType.ToString(),
+                    component);
+            }
+
+            // 処理完了後にコンポーネントを除去し、後段プラグインの考慮対象から外す
+            Object.DestroyImmediate(component);
         }
 
         /// <summary>
         /// 1エントリをマテリアルに適用する。
-        /// プロパティが存在しない、または型が一致しない場合はスキップ。
+        /// プロパティが存在しない、または型が一致しない場合は適用せず false を返す。
         /// </summary>
-        private static void ApplyEntry(Material material, PropertyOverrideEntry entry)
+        private static bool ApplyEntry(Material material, PropertyOverrideEntry entry)
         {
-            if (!material.HasProperty(entry.propertyName)) return;
+            if (!material.HasProperty(entry.propertyName)) return false;
 
             // ShaderUtil でシェーダー側の実際の型を取得して検証（EditorOnly API）
             var shader = material.shader;
             int propIndex = shader.FindPropertyIndex(entry.propertyName);
-            if (propIndex < 0) return;
+            if (propIndex < 0) return false;
 
             var shaderPropType = ShaderUtil.GetPropertyType(shader, propIndex);
 
@@ -83,27 +122,30 @@ namespace Pioka.ShaderPropOverrider.Editor
                 case OverridePropertyType.Float:
                     if (shaderPropType != ShaderUtil.ShaderPropertyType.Float &&
                         shaderPropType != ShaderUtil.ShaderPropertyType.Range)
-                        return;
+                        return false;
                     material.SetFloat(entry.propertyName, entry.floatValue);
-                    break;
+                    return true;
 
                 case OverridePropertyType.Int:
                     if (shaderPropType != ShaderUtil.ShaderPropertyType.Int)
-                        return;
+                        return false;
                     material.SetInt(entry.propertyName, entry.intValue);
-                    break;
+                    return true;
 
                 case OverridePropertyType.Color:
                     if (shaderPropType != ShaderUtil.ShaderPropertyType.Color)
-                        return;
+                        return false;
                     material.SetColor(entry.propertyName, entry.colorValue);
-                    break;
+                    return true;
 
                 case OverridePropertyType.Vector4:
                     if (shaderPropType != ShaderUtil.ShaderPropertyType.Vector)
-                        return;
+                        return false;
                     material.SetVector(entry.propertyName, entry.vector4Value);
-                    break;
+                    return true;
+
+                default:
+                    return false;
             }
         }
     }

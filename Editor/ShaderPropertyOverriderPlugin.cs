@@ -20,7 +20,7 @@ namespace Pioka.ShaderPropOverrider.Editor
         {
             InPhase(BuildPhase.Optimizing)
                 .BeforePlugin("com.anatawa12.avatar-optimizer")
-                .Run(new ShaderPropertyOverriderPass());
+                .Run("Override Shader Properties", ShaderPropertyOverriderPass.Execute);
         }
     }
 }
