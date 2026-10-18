@@ -73,46 +73,25 @@ namespace Pioka.ShaderPropOverrider.Editor
 
                 // 値フィールド（型に応じて切替）
                 var type = (OverridePropertyType)propType.enumValueIndex;
-                switch (type)
+                if (type == OverridePropertyType.Vector4)
                 {
-                    case OverridePropertyType.Float:
+                    // 1行の矩形に収めるため、PropertyField ではなく Vector4Field で直接描画する
+                    var p = element.FindPropertyRelative("vector4Value");
+                    EditorGUI.BeginChangeCheck();
+                    var newVec = EditorGUI.Vector4Field(valueRect, GUIContent.none, p.vector4Value);
+                    if (EditorGUI.EndChangeCheck())
+                        p.vector4Value = newVec;
+                }
+                else
+                {
+                    var fieldName = type switch
                     {
-                        var p = element.FindPropertyRelative("floatValue");
-                        EditorGUI.PropertyField(valueRect, p, GUIContent.none);
-                        break;
-                    }
-                    case OverridePropertyType.Int:
-                    {
-                        var p = element.FindPropertyRelative("intValue");
-                        EditorGUI.PropertyField(valueRect, p, GUIContent.none);
-                        break;
-                    }
-                    case OverridePropertyType.Color:
-                    {
-                        var p = element.FindPropertyRelative("colorValue");
-                        EditorGUI.BeginChangeCheck();
-                        var newColor = EditorGUI.ColorField(
-                            valueRect,
-                            GUIContent.none,
-                            p.colorValue,
-                            showEyedropper: true,
-                            showAlpha: true,
-                            hdr: false
-                        );
-                        if (EditorGUI.EndChangeCheck())
-                            p.colorValue = newColor;
-                        break;
-                    }
-                    case OverridePropertyType.Vector4:
-                    {
-                        // SerializedPropertyにvector4Valueは存在しないため Vector4Field で直接描画する
-                        var p = element.FindPropertyRelative("vector4Value");
-                        EditorGUI.BeginChangeCheck();
-                        var newVec = EditorGUI.Vector4Field(valueRect, GUIContent.none, p.vector4Value);
-                        if (EditorGUI.EndChangeCheck())
-                            p.vector4Value = newVec;
-                        break;
-                    }
+                        OverridePropertyType.Float => "floatValue",
+                        OverridePropertyType.Int   => "intValue",
+                        OverridePropertyType.Color => "colorValue",
+                        _ => throw new ArgumentOutOfRangeException(nameof(type), type, null),
+                    };
+                    EditorGUI.PropertyField(valueRect, element.FindPropertyRelative(fieldName), GUIContent.none);
                 }
             };
 
