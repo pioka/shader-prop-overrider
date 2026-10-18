@@ -1,6 +1,6 @@
 # shader-prop-overrider
 
-[![](https://img.shields.io/badge/Add_to-VCC-%230f91a9)](https://pioka.github.io/shader-prop-overrider/)
+[![](https://img.shields.io/badge/Add_to-VCC-%230f91a9)](https://pioka.github.io/vpm-listing/)
 
 非破壊で全マテリアルのシェーダープロパティを上書きするやつ
 
@@ -13,6 +13,10 @@
 - NDMF Preview に対応。ビルドしなくても Scene ビューで上書き後の見た目を確認できる
   - プレビューの対象は MeshRenderer / SkinnedMeshRenderer のみ（パーティクル等はビルド時にのみ反映）
 - lilToon プリセットから値を取り込める
+
+## 導入
+
+[このリンク](https://pioka.github.io/vpm-listing/) から VCC にリポジトリを登録し、導入したいプロジェクトに本パッケージを追加してください。
 
 ## 動作環境
 
