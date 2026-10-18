@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Pioka.ShaderPropOverrider;
 using UnityEditor;
 using UnityEditorInternal;
 using UnityEngine;
@@ -21,6 +20,9 @@ namespace Pioka.ShaderPropOverrider.Editor
 
         private void OnEnable()
         {
+            // 再生時のビルド等でコンポーネントが破棄された直後に呼ばれると target が null になる
+            if (target == null) return;
+
             _overridesProp = serializedObject.FindProperty("overrides");
             BuildList();
         }
@@ -71,46 +73,25 @@ namespace Pioka.ShaderPropOverrider.Editor
 
                 // 値フィールド（型に応じて切替）
                 var type = (OverridePropertyType)propType.enumValueIndex;
-                switch (type)
+                if (type == OverridePropertyType.Vector4)
                 {
-                    case OverridePropertyType.Float:
+                    // 1行の矩形に収めるため、PropertyField ではなく Vector4Field で直接描画する
+                    var p = element.FindPropertyRelative("vector4Value");
+                    EditorGUI.BeginChangeCheck();
+                    var newVec = EditorGUI.Vector4Field(valueRect, GUIContent.none, p.vector4Value);
+                    if (EditorGUI.EndChangeCheck())
+                        p.vector4Value = newVec;
+                }
+                else
+                {
+                    var fieldName = type switch
                     {
-                        var p = element.FindPropertyRelative("floatValue");
-                        EditorGUI.PropertyField(valueRect, p, GUIContent.none);
-                        break;
-                    }
-                    case OverridePropertyType.Int:
-                    {
-                        var p = element.FindPropertyRelative("intValue");
-                        EditorGUI.PropertyField(valueRect, p, GUIContent.none);
-                        break;
-                    }
-                    case OverridePropertyType.Color:
-                    {
-                        var p = element.FindPropertyRelative("colorValue");
-                        EditorGUI.BeginChangeCheck();
-                        var newColor = EditorGUI.ColorField(
-                            valueRect,
-                            GUIContent.none,
-                            p.colorValue,
-                            showEyedropper: true,
-                            showAlpha: true,
-                            hdr: false
-                        );
-                        if (EditorGUI.EndChangeCheck())
-                            p.colorValue = newColor;
-                        break;
-                    }
-                    case OverridePropertyType.Vector4:
-                    {
-                        // SerializedPropertyにvector4Valueは存在しないため Vector4Field で直接描画する
-                        var p = element.FindPropertyRelative("vector4Value");
-                        EditorGUI.BeginChangeCheck();
-                        var newVec = EditorGUI.Vector4Field(valueRect, GUIContent.none, p.vector4Value);
-                        if (EditorGUI.EndChangeCheck())
-                            p.vector4Value = newVec;
-                        break;
-                    }
+                        OverridePropertyType.Float => "floatValue",
+                        OverridePropertyType.Int   => "intValue",
+                        OverridePropertyType.Color => "colorValue",
+                        _ => throw new ArgumentOutOfRangeException(nameof(type), type, null),
+                    };
+                    EditorGUI.PropertyField(valueRect, element.FindPropertyRelative(fieldName), GUIContent.none);
                 }
             };
 
@@ -136,11 +117,14 @@ namespace Pioka.ShaderPropOverrider.Editor
 
         public override void OnInspectorGUI()
         {
+            if (_list == null) return;
+
             serializedObject.Update();
 
             EditorGUILayout.Space(4);
             EditorGUILayout.HelpBox(
                 "ビルド時にアバター内の全マテリアルへシェーダープロパティを一括上書きします。\n" +
+                "上書き後の見た目は NDMF Preview で確認できます。\n" +
                 "指定した名称/型がマテリアルに存在しない場合はスキップされます。",
                 MessageType.Info
             );

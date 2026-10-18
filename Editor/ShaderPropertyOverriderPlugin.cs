@@ -10,6 +10,7 @@ namespace Pioka.ShaderPropOverrider.Editor
     /// Optimizing フェーズで AAO より前に実行し、AAOの RemoveUnusedMaterialProperties が
     /// 走る前にプロパティを確定させる。
     /// BeforePlugin は対象プラグイン未導入時は無視されるため、AAO の有無にかかわらず安全。
+    /// また <see cref="ShaderPropertyOverriderPreview"/> により NDMF Preview にも対応する。
     /// </summary>
     internal class ShaderPropertyOverriderPlugin : Plugin<ShaderPropertyOverriderPlugin>
     {
@@ -20,7 +21,8 @@ namespace Pioka.ShaderPropOverrider.Editor
         {
             InPhase(BuildPhase.Optimizing)
                 .BeforePlugin("com.anatawa12.avatar-optimizer")
-                .Run("Override Shader Properties", ShaderPropertyOverriderPass.Execute);
+                .Run("Override Shader Properties", ShaderPropertyOverriderPass.Execute)
+                .PreviewingWith(new ShaderPropertyOverriderPreview());
         }
     }
 }
