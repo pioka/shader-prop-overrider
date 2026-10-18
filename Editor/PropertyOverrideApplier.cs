@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 
@@ -11,13 +12,52 @@ namespace Pioka.ShaderPropOverrider.Editor
     internal static class PropertyOverrideApplier
     {
         /// <summary>
-        /// 1エントリをマテリアルに適用する。
-        /// プロパティが存在しない、または型が一致しない場合は適用せず false を返す。
+        /// <paramref name="src"/> を複製して全エントリを適用する。
+        /// 1つも適用されなかった場合は複製を破棄して false を返す。
         /// </summary>
-        public static bool Apply(Material material, PropertyOverrideEntry entry)
+        public static bool TryCreateOverriddenCopy(
+            Material src,
+            IEnumerable<PropertyOverrideEntry> entries,
+            ISet<PropertyOverrideEntry> appliedEntries,
+            out Material copy)
         {
-            if (!material.HasProperty(entry.propertyName)) return false;
+            copy = Object.Instantiate(src);
+            copy.name = src.name;
 
+            if (ApplyAll(copy, entries, appliedEntries))
+                return true;
+
+            Object.DestroyImmediate(copy);
+            copy = null;
+            return false;
+        }
+
+        /// <summary>
+        /// 全エントリをマテリアルに適用し、1つでも適用できたら true を返す（後のエントリが勝つ）。
+        /// <paramref name="appliedEntries"/> が null でなければ、適用できたエントリを追加する。
+        /// </summary>
+        public static bool ApplyAll(
+            Material material,
+            IEnumerable<PropertyOverrideEntry> entries,
+            ISet<PropertyOverrideEntry> appliedEntries)
+        {
+            bool applied = false;
+            foreach (var entry in entries)
+            {
+                if (!Apply(material, entry)) continue;
+
+                applied = true;
+                appliedEntries?.Add(entry);
+            }
+            return applied;
+        }
+
+        /// <summary>
+        /// 1エントリをマテリアルに適用する。
+        /// プロパティが存在しない（名前が空の場合を含む）、または型が一致しない場合は適用せず false を返す。
+        /// </summary>
+        private static bool Apply(Material material, PropertyOverrideEntry entry)
+        {
             // ShaderUtil でシェーダー側の実際の型を取得して検証（EditorOnly API）
             var shader = material.shader;
             int propIndex = shader.FindPropertyIndex(entry.propertyName);

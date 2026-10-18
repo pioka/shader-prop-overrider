@@ -60,23 +60,10 @@ namespace Pioka.ShaderPropOverrider.Editor
                     // マテリアル側の編集にも追従する
                     context.Observe(src);
 
-                    // プレビューでは元アセットを汚さないよう、常に複製してから編集する
-                    var dst = Object.Instantiate(src);
-                    dst.name = src.name;
-
-                    bool applied = false;
-                    foreach (var entry in overrides)
-                    {
-                        if (string.IsNullOrEmpty(entry.propertyName)) continue;
-                        if (PropertyOverrideApplier.Apply(dst, entry))
-                            applied = true;
-                    }
-
-                    // 1つも適用されなかったマテリアルは複製を捨てて元のまま使う
-                    if (applied)
+                    // プレビューでは元アセットを汚さないよう、常に複製してから編集する。
+                    // 上書きが1つも当たらないマテリアルは差し替えない。
+                    if (PropertyOverrideApplier.TryCreateOverriddenCopy(src, overrides, null, out var dst))
                         replacements[src] = dst;
-                    else
-                        Object.DestroyImmediate(dst);
                 }
             }
 
@@ -97,38 +84,10 @@ namespace Pioka.ShaderPropOverrider.Editor
                 .FirstOrDefault();
             if (component == null) return new List<PropertyOverrideEntry>();
 
-            return context.Observe(
-                component,
-                c => c.overrides == null
-                    ? new List<PropertyOverrideEntry>()
-                    : c.overrides.Select(Clone).ToList(),
-                (a, b) => a.Count == b.Count && a.Zip(b, EntryEquals).All(eq => eq));
-        }
-
-        /// <summary>
-        /// Observe の比較用に、エントリの値をコピーする（参照のままだと変更を検出できない）。
-        /// </summary>
-        private static PropertyOverrideEntry Clone(PropertyOverrideEntry e)
-        {
-            return new PropertyOverrideEntry
-            {
-                propertyName = e.propertyName,
-                propertyType = e.propertyType,
-                floatValue   = e.floatValue,
-                intValue     = e.intValue,
-                colorValue   = e.colorValue,
-                vector4Value = e.vector4Value,
-            };
-        }
-
-        private static bool EntryEquals(PropertyOverrideEntry a, PropertyOverrideEntry b)
-        {
-            return a.propertyName == b.propertyName
-                && a.propertyType == b.propertyType
-                && a.floatValue.Equals(b.floatValue)
-                && a.intValue == b.intValue
-                && a.colorValue.Equals(b.colorValue)
-                && a.vector4Value.Equals(b.vector4Value);
+            // シリアライズ結果の文字列で比較し、エントリの内容が変わったときだけ再計算させる。
+            // Instantiate は同期的に完了しエントリを保持しないため、適用には実体をそのまま使う。
+            context.Observe(component, c => JsonUtility.ToJson(c));
+            return component.overrides;
         }
 
         /// <summary>
@@ -177,7 +136,6 @@ namespace Pioka.ShaderPropOverrider.Editor
                     if (material != null)
                         Object.DestroyImmediate(material);
                 }
-                _replacements.Clear();
             }
         }
     }
