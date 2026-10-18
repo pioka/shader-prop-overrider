@@ -21,6 +21,9 @@ namespace Pioka.ShaderPropOverrider.Editor
 
         private void OnEnable()
         {
+            // 再生時のビルド等でコンポーネントが破棄された直後に呼ばれると target が null になる
+            if (target == null) return;
+
             _overridesProp = serializedObject.FindProperty("overrides");
             BuildList();
         }
@@ -136,6 +139,8 @@ namespace Pioka.ShaderPropOverrider.Editor
 
         public override void OnInspectorGUI()
         {
+            if (_list == null) return;
+
             serializedObject.Update();
 
             EditorGUILayout.Space(4);

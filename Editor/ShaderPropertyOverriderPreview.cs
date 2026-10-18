@@ -15,7 +15,7 @@ namespace Pioka.ShaderPropOverrider.Editor
     internal class ShaderPropertyOverriderPreview : IRenderFilter
     {
         /// <summary>
-        /// コンポーネントを持つアバターごとに、配下の全 Renderer を1グループとして返す。
+        /// コンポーネントを持つアバターごとに、配下のプレビュー対応 Renderer を1グループとして返す。
         /// ビルド時と同様に「同一マテリアルは1回だけ複製する」ため、アバター単位でまとめる。
         /// </summary>
         public ImmutableList<RenderGroup> GetTargetGroups(ComputeContext context)
@@ -27,7 +27,11 @@ namespace Pioka.ShaderPropOverrider.Editor
                 var components = context.GetComponentsInChildren<ShaderPropertyOverrider>(root, true);
                 if (components.Length == 0) continue;
 
-                var renderers = context.GetComponentsInChildren<Renderer>(root, true);
+                // NDMF Preview は MeshRenderer / SkinnedMeshRenderer 以外を含むと
+                // フィルタ全体を無効化するため、それ以外（パーティクル等）は除外する
+                var renderers = context.GetComponentsInChildren<Renderer>(root, true)
+                    .Where(r => r is MeshRenderer || r is SkinnedMeshRenderer)
+                    .ToArray();
                 if (renderers.Length == 0) continue;
 
                 groups.Add(RenderGroup.For(renderers));
@@ -42,64 +46,41 @@ namespace Pioka.ShaderPropOverrider.Editor
             ComputeContext context)
         {
             var overrides = ObserveOverrides(group, context);
-            var clones = new List<Material>();
 
-            // キー: プロキシが持っていたマテリアル、値: 差し替え先（上書き不要なら元のまま）
-            var materialCache = new Dictionary<Material, Material>();
+            // キー: プロキシが持っていたマテリアル、値: 上書き済みの複製（上書きが当たったものだけ）
+            var replacements = new Dictionary<Material, Material>();
+            var visited = new HashSet<Material>();
 
             foreach (var (_, proxy) in proxyPairs)
             {
-                var materials = proxy.sharedMaterials;
-                bool modified = false;
-
-                for (int i = 0; i < materials.Length; i++)
+                foreach (var src in proxy.sharedMaterials)
                 {
-                    var src = materials[i];
-                    if (src == null) continue;
+                    if (src == null || !visited.Add(src)) continue;
 
-                    if (!materialCache.TryGetValue(src, out var dst))
+                    // マテリアル側の編集にも追従する
+                    context.Observe(src);
+
+                    // プレビューでは元アセットを汚さないよう、常に複製してから編集する
+                    var dst = Object.Instantiate(src);
+                    dst.name = src.name;
+
+                    bool applied = false;
+                    foreach (var entry in overrides)
                     {
-                        // マテリアル側の編集にも追従する
-                        context.Observe(src);
-
-                        // プレビューでは元アセットを汚さないよう、常に複製してから編集する
-                        dst = Object.Instantiate(src);
-                        dst.name = src.name;
-
-                        bool applied = false;
-                        foreach (var entry in overrides)
-                        {
-                            if (string.IsNullOrEmpty(entry.propertyName)) continue;
-                            if (PropertyOverrideApplier.Apply(dst, entry))
-                                applied = true;
-                        }
-
-                        // 1つも適用されなかったマテリアルは複製を捨てて元のまま使う
-                        if (applied)
-                        {
-                            clones.Add(dst);
-                        }
-                        else
-                        {
-                            Object.DestroyImmediate(dst);
-                            dst = src;
-                        }
-
-                        materialCache[src] = dst;
+                        if (string.IsNullOrEmpty(entry.propertyName)) continue;
+                        if (PropertyOverrideApplier.Apply(dst, entry))
+                            applied = true;
                     }
 
-                    if (!ReferenceEquals(materials[i], dst))
-                    {
-                        materials[i] = dst;
-                        modified = true;
-                    }
+                    // 1つも適用されなかったマテリアルは複製を捨てて元のまま使う
+                    if (applied)
+                        replacements[src] = dst;
+                    else
+                        Object.DestroyImmediate(dst);
                 }
-
-                if (modified)
-                    proxy.sharedMaterials = materials;
             }
 
-            return Task.FromResult<IRenderFilterNode>(new Node(clones));
+            return Task.FromResult<IRenderFilterNode>(new Node(replacements));
         }
 
         /// <summary>
@@ -151,27 +132,52 @@ namespace Pioka.ShaderPropOverrider.Editor
         }
 
         /// <summary>
-        /// 複製したマテリアルを保持し、ノード破棄時に解放する。
+        /// 複製したマテリアルを保持し、毎フレームプロキシに差し替える。ノード破棄時に解放する。
+        /// NDMF はフレームごとに元 Renderer の状態（マテリアル含む）をプロキシへコピーし直すため、
+        /// Instantiate で差し替えるだけでは反映されず、OnFrame で毎回差し替える必要がある。
         /// </summary>
         private class Node : IRenderFilterNode
         {
-            private readonly List<Material> _clones;
+            private readonly Dictionary<Material, Material> _replacements;
 
             public RenderAspects WhatChanged => RenderAspects.Material;
 
-            public Node(List<Material> clones)
+            public Node(Dictionary<Material, Material> replacements)
             {
-                _clones = clones;
+                _replacements = replacements;
+            }
+
+            public void OnFrame(Renderer original, Renderer proxy)
+            {
+                if (proxy == null || _replacements.Count == 0) return;
+
+                var materials = proxy.sharedMaterials;
+                bool modified = false;
+
+                for (int i = 0; i < materials.Length; i++)
+                {
+                    var src = materials[i];
+                    if (src == null) continue;
+
+                    if (_replacements.TryGetValue(src, out var dst))
+                    {
+                        materials[i] = dst;
+                        modified = true;
+                    }
+                }
+
+                if (modified)
+                    proxy.sharedMaterials = materials;
             }
 
             public void Dispose()
             {
-                foreach (var material in _clones)
+                foreach (var material in _replacements.Values)
                 {
                     if (material != null)
                         Object.DestroyImmediate(material);
                 }
-                _clones.Clear();
+                _replacements.Clear();
             }
         }
     }
