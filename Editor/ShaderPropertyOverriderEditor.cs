@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using Pioka.ShaderPropOverrider;
 using UnityEditor;
 using UnityEditorInternal;
@@ -111,17 +114,24 @@ namespace Pioka.ShaderPropOverrider.Editor
                 }
             };
 
-            _list.onAddCallback = list =>
-            {
-                _overridesProp.arraySize++;
-                var e = _overridesProp.GetArrayElementAtIndex(_overridesProp.arraySize - 1);
-                e.FindPropertyRelative("propertyName").stringValue       = "";
-                e.FindPropertyRelative("propertyType").enumValueIndex    = 0;
-                e.FindPropertyRelative("floatValue").floatValue          = 0f;
-                e.FindPropertyRelative("intValue").intValue              = 0;
-                e.FindPropertyRelative("colorValue").colorValue          = Color.white;
-                e.FindPropertyRelative("vector4Value").vector4Value      = Vector4.zero;
-            };
+            _list.onAddCallback = list => AddEntry();
+        }
+
+        /// <summary>
+        /// 末尾に既定値で初期化したエントリを追加して返す。
+        /// (arraySize++ は直前の要素をコピーするため、明示的に初期化する)
+        /// </summary>
+        private SerializedProperty AddEntry()
+        {
+            _overridesProp.arraySize++;
+            var e = _overridesProp.GetArrayElementAtIndex(_overridesProp.arraySize - 1);
+            e.FindPropertyRelative("propertyName").stringValue       = "";
+            e.FindPropertyRelative("propertyType").enumValueIndex    = 0;
+            e.FindPropertyRelative("floatValue").floatValue          = 0f;
+            e.FindPropertyRelative("intValue").intValue              = 0;
+            e.FindPropertyRelative("colorValue").colorValue          = Color.white;
+            e.FindPropertyRelative("vector4Value").vector4Value      = Vector4.zero;
+            return e;
         }
 
         public override void OnInspectorGUI()
@@ -138,7 +148,159 @@ namespace Pioka.ShaderPropOverrider.Editor
 
             _list.DoLayoutList();
 
+            var importLabel = new GUIContent("lilToon プリセットから取り込み");
+            var importRect  = GUILayoutUtility.GetRect(importLabel, EditorStyles.miniPullDown);
+            if (EditorGUI.DropdownButton(importRect, importLabel, FocusType.Passive))
+                ShowLilToonPresetMenu(importRect);
+
             serializedObject.ApplyModifiedProperties();
         }
+
+        // ---- lilToon プリセット取り込み ----
+        // lilToon.Editor への参照を持たずに済むよう、プリセットは型名で検索し SerializedObject 経由で読む。
+        // lilToon 未導入の環境ではプリセットが見つからないだけで、コンパイルには影響しない。
+
+        private const string LilToonPresetTypeName = "lilToonPreset";
+
+        private void ShowLilToonPresetMenu(Rect rect)
+        {
+            var presets = new List<(int category, string menuPath, string name, ScriptableObject asset)>();
+
+            foreach (var guid in AssetDatabase.FindAssets("t:" + LilToonPresetTypeName))
+            {
+                var asset = AssetDatabase.LoadAssetAtPath<ScriptableObject>(AssetDatabase.GUIDToAssetPath(guid));
+                if (asset == null || asset.GetType().Name != LilToonPresetTypeName) continue;
+
+                var so       = new SerializedObject(asset);
+                var name     = GetPresetDisplayName(so, asset.name);
+                var category = so.FindProperty("category");
+
+                int    categoryIndex = -1;
+                string categoryName  = "Other";
+                if (category != null && category.propertyType == SerializedPropertyType.Enum &&
+                    category.enumValueIndex >= 0 && category.enumValueIndex < category.enumDisplayNames.Length)
+                {
+                    categoryIndex = category.enumValueIndex;
+                    categoryName  = category.enumDisplayNames[categoryIndex];
+                }
+
+                presets.Add((categoryIndex, categoryName + "/" + name, name, asset));
+            }
+
+            var menu = new GenericMenu();
+            foreach (var p in presets.OrderBy(p => p.category).ThenBy(p => p.name))
+            {
+                var preset = p;
+                menu.AddItem(new GUIContent(preset.menuPath), false, () => ImportLilToonPreset(preset.asset, preset.name));
+            }
+
+            if (presets.Count == 0)
+                menu.AddDisabledItem(new GUIContent("lilToon プリセットが見つかりません"));
+
+            menu.DropDown(rect);
+        }
+
+        /// <summary>
+        /// プリセットの表示名を返す。日本語名 → 英語名 → アセット名 の順に採用する。
+        /// </summary>
+        private static string GetPresetDisplayName(SerializedObject preset, string fallback)
+        {
+            var bases = preset.FindProperty("bases");
+            if (bases == null || !bases.isArray) return fallback;
+
+            string english = null;
+            for (int i = 0; i < bases.arraySize; i++)
+            {
+                var b    = bases.GetArrayElementAtIndex(i);
+                var lang = b.FindPropertyRelative("language")?.stringValue;
+                var name = b.FindPropertyRelative("name")?.stringValue;
+                if (string.IsNullOrEmpty(name)) continue;
+
+                if (lang == "Japanese") return name;
+                if (lang == "English")  english = name;
+            }
+            return english ?? fallback;
+        }
+
+        /// <summary>
+        /// プリセットの colors / vectors / floats をエントリとして取り込む。
+        /// 同名のエントリが既にあれば型と値を上書きし、なければ末尾に追加する。
+        /// テクスチャやシェーダー・描画モード等は本コンポーネントで扱えないため対象外。
+        /// </summary>
+        private void ImportLilToonPreset(ScriptableObject preset, string displayName)
+        {
+            if (preset == null) return;
+
+            var so       = new SerializedObject(preset);
+            var colors   = so.FindProperty("colors");
+            var vectors  = so.FindProperty("vectors");
+            var floats   = so.FindProperty("floats");
+            var textures = so.FindProperty("textures");
+
+            int propCount = ArraySize(colors) + ArraySize(vectors) + ArraySize(floats);
+            int texCount  = ArraySize(textures);
+
+            var message = $"lilToon プリセット「{displayName}」から {propCount} 件のプロパティを取り込みます。\n" +
+                          "同名のエントリは上書きされます。";
+            if (texCount > 0)
+                message += $"\nテクスチャ ({texCount} 件) は対象外です。";
+
+            if (!EditorUtility.DisplayDialog("lilToon プリセットの取り込み", message, "取り込む", "キャンセル"))
+                return;
+
+            serializedObject.Update();
+
+            // 同名エントリは後のものが勝つため、最後の出現位置を上書き対象とする
+            var indexByName = new Dictionary<string, int>();
+            for (int i = 0; i < _overridesProp.arraySize; i++)
+            {
+                var name = _overridesProp.GetArrayElementAtIndex(i).FindPropertyRelative("propertyName").stringValue;
+                if (!string.IsNullOrEmpty(name)) indexByName[name] = i;
+            }
+
+            ImportArray(colors, OverridePropertyType.Color, indexByName,
+                (dst, v) => dst.FindPropertyRelative("colorValue").colorValue = v.colorValue);
+            ImportArray(vectors, OverridePropertyType.Vector4, indexByName,
+                (dst, v) => dst.FindPropertyRelative("vector4Value").vector4Value = v.vector4Value);
+            ImportArray(floats, OverridePropertyType.Float, indexByName,
+                (dst, v) => dst.FindPropertyRelative("floatValue").floatValue = v.floatValue);
+
+            // ApplyModifiedProperties により Undo にも記録される
+            serializedObject.ApplyModifiedProperties();
+        }
+
+        private void ImportArray(
+            SerializedProperty src,
+            OverridePropertyType type,
+            Dictionary<string, int> indexByName,
+            Action<SerializedProperty, SerializedProperty> copyValue)
+        {
+            if (src == null || !src.isArray) return;
+
+            for (int i = 0; i < src.arraySize; i++)
+            {
+                var item  = src.GetArrayElementAtIndex(i);
+                var name  = item.FindPropertyRelative("name")?.stringValue;
+                var value = item.FindPropertyRelative("value");
+                if (string.IsNullOrEmpty(name) || value == null) continue;
+
+                SerializedProperty dst;
+                if (indexByName.TryGetValue(name, out var index))
+                {
+                    dst = _overridesProp.GetArrayElementAtIndex(index);
+                }
+                else
+                {
+                    dst = AddEntry();
+                    dst.FindPropertyRelative("propertyName").stringValue = name;
+                    indexByName[name] = _overridesProp.arraySize - 1;
+                }
+
+                dst.FindPropertyRelative("propertyType").enumValueIndex = (int)type;
+                copyValue(dst, value);
+            }
+        }
+
+        private static int ArraySize(SerializedProperty p) => p != null && p.isArray ? p.arraySize : 0;
     }
 }
