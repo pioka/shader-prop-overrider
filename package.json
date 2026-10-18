@@ -10,6 +10,9 @@
   },
   "license": "MIT",
   "dependencies": {
-    "nadena.dev.ndmf": "1.0.0"
+    "nadena.dev.ndmf": "1.5.0"
+  },
+  "vpmDependencies": {
+    "nadena.dev.ndmf": ">=1.5.0"
   }
 }
