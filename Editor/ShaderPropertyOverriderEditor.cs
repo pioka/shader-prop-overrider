@@ -124,6 +124,7 @@ namespace Pioka.ShaderPropOverrider.Editor
             EditorGUILayout.Space(4);
             EditorGUILayout.HelpBox(
                 "ビルド時にアバター内の全マテリアルへシェーダープロパティを一括上書きします。\n" +
+                "上書き後の見た目は NDMF Preview で確認できます。\n" +
                 "指定した名称/型がマテリアルに存在しない場合はスキップされます。",
                 MessageType.Info
             );
