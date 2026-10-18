@@ -1,6 +1,6 @@
 {
   "name": "io.github.pioka.shader-prop-overrider",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "displayName": "Shader Property Overrider",
   "unity": "2022.3",
   "description": "An NDMF plugin that bulk-overwrites shader properties on all materials in an avatar at build time.",
